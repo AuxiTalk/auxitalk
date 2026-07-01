@@ -48,3 +48,13 @@ Planned next steps:
 - route generated actions through the runtime action gate;
 - add richer conditions over payload fields;
 - support multiple actions per rule.
+
+## Workflow registry
+
+In-memory registry (`internal/workflows.Registry`) provides:
+
+- `Register(workflow)` validates and stores
+- `List`, `Get(id)`, `Enable(id)`, `Disable(id)`
+- `EnabledRules()` returns only active rules from enabled workflows
+
+Validation ensures unique workflow IDs, at least one rule, and no duplicate rule IDs within a workflow.
