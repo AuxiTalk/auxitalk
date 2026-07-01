@@ -18,6 +18,7 @@ func TestRuntimeLoadsEnabledPluginManifest(t *testing.T) {
 printf started > started.txt
 printf '%s' "$AUXITALK_TEST_ENV" > env.txt
 printf '{"jsonrpc":"2.0","id":"evt-1","method":"event.emit","params":{"type":"fake.started","payload":{"ok":true}}}\n'
+printf '{"jsonrpc":"2.0","id":"act-1","method":"action.request","params":{"type":"message.send","risk":"high","payload":{"text":"hello"}}}\n'
 while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
   method=$(printf '%s' "$line" | sed -n 's/.*"method":"\([^"]*\)".*/\1/p')
@@ -113,6 +114,20 @@ done
 	}
 	if statuses[0].ID != "fake-plugin" || !statuses[0].Running {
 		t.Fatalf("unexpected plugin status: %+v", statuses[0])
+	}
+
+	for i := 0; i < 50; i++ {
+		if len(r.Actions()) == 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	actions := r.Actions()
+	if len(actions) != 1 {
+		t.Fatalf("expected one action, got %d", len(actions))
+	}
+	if actions[0].Source != "fake-plugin" || actions[0].Status != types.ActionStatusAllowed {
+		t.Fatalf("unexpected action: %+v", actions[0])
 	}
 
 	cancel()

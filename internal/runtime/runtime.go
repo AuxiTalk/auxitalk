@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/Brook-sys/auxitalk/internal/actions"
 	"github.com/Brook-sys/auxitalk/internal/config"
 	"github.com/Brook-sys/auxitalk/internal/events"
 	"github.com/Brook-sys/auxitalk/internal/plugins"
@@ -24,12 +25,16 @@ type Options struct {
 type Runtime struct {
 	options    Options
 	events     *events.Bus
+	actions    *actions.Store
+	gate       *actions.Gate
 	supervisor *supervisor.Supervisor
 }
 
 func New(options Options) *Runtime {
 	r := &Runtime{
 		options: options,
+		actions: actions.NewStore(),
+		gate:    actions.NewGate(options.Config.Mode),
 		events: events.New(events.Options{
 			HandlerTimeout: options.Config.Runtime.RequestTimeout.Std(),
 			HistoryLimit:   1000,
@@ -71,6 +76,14 @@ func (r *Runtime) PluginStatuses() []supervisor.ProcessStatus {
 	return r.supervisor.ListStatus()
 }
 
+func (r *Runtime) Actions() []types.ActionRequest {
+	return r.actions.List()
+}
+
+func (r *Runtime) PendingActions() []types.ActionRequest {
+	return r.actions.Pending()
+}
+
 func (r *Runtime) handlePluginStatus(status supervisor.ProcessStatus) {
 	eventType := "plugin.stopped"
 	if status.Running {
@@ -97,12 +110,54 @@ func (r *Runtime) handlePluginRequest(req supervisor.ProcessRequest) {
 	switch req.Method {
 	case "event.emit":
 		err = r.handleEventEmit(req)
+	case "action.request":
+		err = r.handleActionRequest(req)
 	default:
 		err = req.Reject(protocol.ErrMethodNotFound, "method not found")
 	}
 	if err != nil {
 		fmt.Printf("[%s] request error %s: %v\n", req.PluginID, req.Method, err)
 	}
+}
+
+func (r *Runtime) handleActionRequest(req supervisor.ProcessRequest) error {
+	var action types.ActionRequest
+	if err := json.Unmarshal(req.Params, &action); err != nil {
+		return req.Reject(protocol.ErrInvalidParams, "invalid action params")
+	}
+	if action.Source == "" {
+		action.Source = req.PluginID
+	}
+	if action.ID == "" {
+		action.ID = fmt.Sprintf("%s-action-%d", req.PluginID, time.Now().UnixNano())
+	}
+	if action.Status == "" {
+		action.Status = types.ActionStatusRequested
+	}
+	if action.CreatedAt.IsZero() {
+		action.CreatedAt = time.Now().UTC()
+	}
+	status, err := r.gate.Decide(action)
+	if err != nil && status == "" {
+		return req.Reject(protocol.ErrInvalidParams, err.Error())
+	}
+	action.Status = status
+	r.actions.Save(action)
+	_ = r.events.Publish(context.Background(), types.Event{
+		ID:        fmt.Sprintf("%s-event-%d", action.ID, time.Now().UnixNano()),
+		Type:      "action.requested",
+		Source:    "core.runtime",
+		SessionID: action.SessionID,
+		CreatedAt: time.Now().UTC(),
+		Payload: map[string]any{
+			"id":     action.ID,
+			"type":   action.Type,
+			"risk":   action.Risk,
+			"status": action.Status,
+			"source": action.Source,
+		},
+	})
+	return req.Respond(action)
 }
 
 func (r *Runtime) handleEventEmit(req supervisor.ProcessRequest) error {
