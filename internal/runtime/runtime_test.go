@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Brook-sys/auxitalk/internal/config"
+	"github.com/Brook-sys/auxitalk/pkg/types"
 )
 
 func TestRuntimeLoadsEnabledPluginManifest(t *testing.T) {
@@ -15,6 +16,7 @@ func TestRuntimeLoadsEnabledPluginManifest(t *testing.T) {
 	script := filepath.Join(dir, "plugin.sh")
 	if err := os.WriteFile(script, []byte(`#!/usr/bin/env sh
 printf started > started.txt
+printf '{"jsonrpc":"2.0","id":"evt-1","method":"event.emit","params":{"type":"plugin.started","payload":{"ok":true}}}\n'
 while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
   method=$(printf '%s' "$line" | sed -n 's/.*"method":"\([^"]*\)".*/\1/p')
@@ -58,6 +60,16 @@ done
 		},
 	})
 
+	events := make(chan types.Event, 1)
+	sub, err := r.Events().Subscribe("plugin.started", func(ctx context.Context, event types.Event) error {
+		events <- event
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	defer sub.Unsubscribe()
+
 	done := make(chan error, 1)
 	go func() { done <- r.Run(ctx) }()
 
@@ -69,6 +81,15 @@ done
 	}
 	if _, err := os.Stat(filepath.Join(dir, "started.txt")); err != nil {
 		t.Fatalf("plugin did not start: %v", err)
+	}
+
+	select {
+	case event := <-events:
+		if event.Source != "fake-plugin" {
+			t.Fatalf("unexpected event source: %s", event.Source)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("event was not published")
 	}
 
 	cancel()

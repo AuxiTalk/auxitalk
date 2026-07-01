@@ -2,13 +2,17 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"time"
 
 	"github.com/Brook-sys/auxitalk/internal/config"
+	"github.com/Brook-sys/auxitalk/internal/events"
 	"github.com/Brook-sys/auxitalk/internal/plugins"
 	"github.com/Brook-sys/auxitalk/internal/plugins/supervisor"
+	"github.com/Brook-sys/auxitalk/pkg/protocol"
+	"github.com/Brook-sys/auxitalk/pkg/types"
 )
 
 type Options struct {
@@ -19,11 +23,20 @@ type Options struct {
 
 type Runtime struct {
 	options    Options
+	events     *events.Bus
 	supervisor *supervisor.Supervisor
 }
 
 func New(options Options) *Runtime {
-	sup := supervisor.NewSupervisor(supervisor.ProcessOptions{
+	r := &Runtime{
+		options: options,
+		events: events.New(events.Options{
+			HandlerTimeout: options.Config.Runtime.RequestTimeout.Std(),
+			HistoryLimit:   1000,
+		}),
+	}
+
+	r.supervisor = supervisor.NewSupervisor(supervisor.ProcessOptions{
 		CallTimeout:    options.Config.Runtime.RequestTimeout.Std(),
 		HealthInterval: 30 * time.Second,
 		RestartBackoff: time.Second,
@@ -32,12 +45,10 @@ func New(options Options) *Runtime {
 		OnLog: func(pluginID string, line string) {
 			fmt.Printf("[%s] %s\n", pluginID, line)
 		},
-		OnRequest: func(req supervisor.ProcessRequest) {
-			fmt.Printf("[%s] plugin request: %s\n", req.PluginID, req.Method)
-		},
+		OnRequest: r.handlePluginRequest,
 	})
 
-	return &Runtime{options: options, supervisor: sup}
+	return r
 }
 
 func (r *Runtime) Run(ctx context.Context) error {
@@ -49,6 +60,43 @@ func (r *Runtime) Run(ctx context.Context) error {
 
 	<-ctx.Done()
 	return r.shutdown()
+}
+
+func (r *Runtime) Events() *events.Bus {
+	return r.events
+}
+
+func (r *Runtime) handlePluginRequest(req supervisor.ProcessRequest) {
+	var err error
+	switch req.Method {
+	case "event.emit":
+		err = r.handleEventEmit(req)
+	default:
+		err = req.Reject(protocol.ErrMethodNotFound, "method not found")
+	}
+	if err != nil {
+		fmt.Printf("[%s] request error %s: %v\n", req.PluginID, req.Method, err)
+	}
+}
+
+func (r *Runtime) handleEventEmit(req supervisor.ProcessRequest) error {
+	var event types.Event
+	if err := json.Unmarshal(req.Params, &event); err != nil {
+		return req.Reject(protocol.ErrInvalidParams, "invalid event params")
+	}
+	if event.Source == "" {
+		event.Source = req.PluginID
+	}
+	if event.ID == "" {
+		event.ID = fmt.Sprintf("%s-%d", req.PluginID, time.Now().UnixNano())
+	}
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt = time.Now().UTC()
+	}
+	if err := r.events.Publish(context.Background(), event); err != nil {
+		return req.Reject(protocol.ErrInvalidParams, err.Error())
+	}
+	return req.Respond(map[string]any{"ok": true})
 }
 
 func (r *Runtime) loadPlugins(ctx context.Context) error {

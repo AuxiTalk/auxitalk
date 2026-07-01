@@ -43,6 +43,8 @@ type ProcessRequest struct {
 	ID       string
 	Method   string
 	Params   json.RawMessage
+	Respond  func(any) error
+	Reject   func(code int, message string) error
 }
 
 type PluginProcess struct {
@@ -236,7 +238,18 @@ func (p *PluginProcess) handleMessage(data []byte) {
 	}
 	if envelope.Method != "" {
 		if p.opts.OnRequest != nil {
-			p.opts.OnRequest(ProcessRequest{PluginID: p.spec.ID, ID: envelope.ID, Method: envelope.Method, Params: envelope.Params})
+			p.opts.OnRequest(ProcessRequest{
+				PluginID: p.spec.ID,
+				ID:       envelope.ID,
+				Method:   envelope.Method,
+				Params:   envelope.Params,
+				Respond: func(result any) error {
+					return p.writeResponse(protocol.NewResponse(envelope.ID, result))
+				},
+				Reject: func(code int, message string) error {
+					return p.writeResponse(protocol.NewError(envelope.ID, code, message), nil)
+				},
+			})
 		}
 		return
 	}
@@ -248,6 +261,29 @@ func (p *PluginProcess) handleMessage(data []byte) {
 	if ch != nil {
 		ch <- protocol.Response{JSONRPC: protocol.Version, ID: envelope.ID, Result: envelope.Result, Error: envelope.Error}
 	}
+}
+
+func (p *PluginProcess) writeResponse(resp protocol.Response, err error) error {
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return err
+	}
+	if len(data)+1 > p.opts.MaxPayloadSize {
+		return fmt.Errorf("payload too large")
+	}
+
+	p.mu.Lock()
+	stdin := p.stdin
+	running := p.running
+	p.mu.Unlock()
+	if !running {
+		return ErrNotRunning
+	}
+	_, err = stdin.Write(append(data, '\n'))
+	return err
 }
 
 func (p *PluginProcess) monitor() {
