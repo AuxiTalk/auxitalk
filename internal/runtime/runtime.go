@@ -84,6 +84,10 @@ func (r *Runtime) PendingActions() []types.ActionRequest {
 	return r.actions.Pending()
 }
 
+func (r *Runtime) RecentEvents() []types.Event {
+	return r.events.History()
+}
+
 func (r *Runtime) ApproveAction(id string) (types.ActionRequest, error) {
 	action, err := r.actions.UpdateStatus(id, types.ActionStatusAllowed)
 	if err != nil {
