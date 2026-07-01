@@ -157,6 +157,7 @@ func (r *Runtime) loadPlugins(ctx context.Context) error {
 			Command: command,
 			Args:    args,
 			Dir:     manifestFile.Dir,
+			Env:     pluginConfig.ResolvedEnv(nil),
 		}
 
 		if err := r.supervisor.Register(spec); err != nil {

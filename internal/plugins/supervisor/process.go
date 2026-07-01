@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 	"sync/atomic"
@@ -108,7 +109,7 @@ func (p *PluginProcess) startLocked(ctx context.Context) error {
 	processCtx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(processCtx, p.spec.Command, p.spec.Args...)
 	cmd.Dir = p.spec.Dir
-	cmd.Env = append(cmd.Env, p.spec.Env...)
+	cmd.Env = append(os.Environ(), p.spec.Env...)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

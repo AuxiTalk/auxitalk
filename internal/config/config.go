@@ -5,11 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/Brook-sys/auxitalk/pkg/types"
 )
+
+var envPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 type Mode string
 
@@ -54,6 +57,7 @@ type Runtime struct {
 type Plugin struct {
 	Manifest string                `json:"manifest,omitempty"`
 	Enabled  bool                  `json:"enabled"`
+	Env      map[string]string     `json:"env,omitempty"`
 	Config   map[string]any        `json:"config,omitempty"`
 	Inline   *types.PluginManifest `json:"inline,omitempty"`
 }
@@ -137,10 +141,36 @@ func (p Plugin) Validate() error {
 	if strings.TrimSpace(p.Manifest) == "" && p.Inline == nil {
 		return errors.New("plugin manifest or inline manifest is required")
 	}
+	for key := range p.Env {
+		if strings.TrimSpace(key) == "" {
+			return errors.New("plugin env key cannot be empty")
+		}
+	}
 	if p.Inline != nil {
 		if err := p.Inline.Validate(); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (p Plugin) ResolvedEnv(lookup func(string) (string, bool)) []string {
+	if lookup == nil {
+		lookup = os.LookupEnv
+	}
+	env := make([]string, 0, len(p.Env))
+	for key, value := range p.Env {
+		resolved := envPattern.ReplaceAllStringFunc(value, func(match string) string {
+			parts := envPattern.FindStringSubmatch(match)
+			if len(parts) != 2 {
+				return match
+			}
+			if resolved, ok := lookup(parts[1]); ok {
+				return resolved
+			}
+			return ""
+		})
+		env = append(env, key+"="+resolved)
+	}
+	return env
 }

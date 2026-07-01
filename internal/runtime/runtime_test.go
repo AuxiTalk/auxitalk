@@ -16,6 +16,7 @@ func TestRuntimeLoadsEnabledPluginManifest(t *testing.T) {
 	script := filepath.Join(dir, "plugin.sh")
 	if err := os.WriteFile(script, []byte(`#!/usr/bin/env sh
 printf started > started.txt
+printf '%s' "$AUXITALK_TEST_ENV" > env.txt
 printf '{"jsonrpc":"2.0","id":"evt-1","method":"event.emit","params":{"type":"fake.started","payload":{"ok":true}}}\n'
 while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
@@ -44,6 +45,7 @@ done
 		t.Fatalf("write manifest: %v", err)
 	}
 
+	t.Setenv("AUXITALK_TEST_SECRET", "secret-value")
 	ctx, cancel := context.WithCancel(context.Background())
 	r := New(Options{
 		Name:    "test",
@@ -56,7 +58,13 @@ done
 				MaxPayloadSize:     1024 * 1024,
 				MaxEventsPerSecond: 50,
 			},
-			Plugins: []config.Plugin{{Manifest: manifest, Enabled: true}},
+			Plugins: []config.Plugin{{
+				Manifest: manifest,
+				Enabled:  true,
+				Env: map[string]string{
+					"AUXITALK_TEST_ENV": "${AUXITALK_TEST_SECRET}",
+				},
+			}},
 		},
 	})
 
@@ -81,6 +89,13 @@ done
 	}
 	if _, err := os.Stat(filepath.Join(dir, "started.txt")); err != nil {
 		t.Fatalf("plugin did not start: %v", err)
+	}
+	envValue, err := os.ReadFile(filepath.Join(dir, "env.txt"))
+	if err != nil {
+		t.Fatalf("read env file: %v", err)
+	}
+	if string(envValue) != "secret-value" {
+		t.Fatalf("unexpected plugin env: %q", string(envValue))
 	}
 
 	select {

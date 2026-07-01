@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -99,5 +100,34 @@ func TestInlinePluginValidation(t *testing.T) {
 
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected missing plugin manifest error")
+	}
+}
+
+func TestPluginResolvedEnv(t *testing.T) {
+	plugin := Plugin{
+		Manifest: "plugin.json",
+		Enabled:  true,
+		Env: map[string]string{
+			"PLAIN":  "value",
+			"SECRET": "${TOKEN}",
+			"MIXED":  "prefix-${TOKEN}",
+			"EMPTY":  "${MISSING}",
+		},
+	}
+
+	resolved := plugin.ResolvedEnv(func(key string) (string, bool) {
+		if key == "TOKEN" {
+			return "abc", true
+		}
+		return "", false
+	})
+	values := map[string]string{}
+	for _, item := range resolved {
+		parts := strings.SplitN(item, "=", 2)
+		values[parts[0]] = parts[1]
+	}
+
+	if values["PLAIN"] != "value" || values["SECRET"] != "abc" || values["MIXED"] != "prefix-abc" || values["EMPTY"] != "" {
+		t.Fatalf("unexpected env: %+v", values)
 	}
 }
