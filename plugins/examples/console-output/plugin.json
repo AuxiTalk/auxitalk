@@ -1,0 +1,10 @@
+{
+  "id": "console-output",
+  "name": "Console Output",
+  "version": "0.1.0",
+  "runtime": "node",
+  "entry": "index.js",
+  "kind": "output",
+  "permissions": [],
+  "capabilities": []
+}

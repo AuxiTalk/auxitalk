@@ -1,0 +1,10 @@
+{
+  "id": "mock-input",
+  "name": "Mock Input",
+  "version": "0.1.0",
+  "runtime": "node",
+  "entry": "index.js",
+  "kind": "input",
+  "permissions": ["event.emit"],
+  "capabilities": []
+}

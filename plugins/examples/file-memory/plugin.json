@@ -1,0 +1,10 @@
+{
+  "id": "file-memory",
+  "name": "File Memory",
+  "version": "0.1.0",
+  "runtime": "node",
+  "entry": "index.js",
+  "kind": "memory",
+  "permissions": ["memory.write"],
+  "capabilities": []
+}
