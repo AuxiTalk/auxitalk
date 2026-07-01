@@ -61,7 +61,9 @@ profile     user identity, style, contacts, social context
     "message.read"
   ],
   "capabilities": [
-    "conversation.observe"
+    {
+      "name": "conversation.observe"
+    }
   ]
 }
 ```

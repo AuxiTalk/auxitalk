@@ -49,10 +49,38 @@ src/              implementation
     "event.emit"
   ],
   "capabilities": [
-    "conversation.observe"
+    {
+      "name": "conversation.observe"
+    }
   ]
 }
 ```
+
+## Manifest fields
+
+Required fields:
+
+- `id`: stable unique plugin id;
+- `name`: human-readable name;
+- `version`: plugin version;
+- `runtime`: executable/runtime used to start the plugin;
+- `entry`: plugin entrypoint relative to the plugin directory;
+- `kind`: plugin category.
+
+Supported kinds:
+
+```txt
+input
+output
+ai
+memory
+ui
+policy
+tool
+profile
+```
+
+Each capability is an object with a required `name` field and optional schemas.
 
 ## Communication rules
 
