@@ -65,6 +65,8 @@ func (r *Runtime) Run(ctx context.Context) error {
 		return err
 	}
 
+	go r.healthLoop(ctx)
+
 	<-ctx.Done()
 	return r.shutdown()
 }
@@ -79,6 +81,40 @@ func (r *Runtime) PluginStatuses() []supervisor.ProcessStatus {
 
 func (r *Runtime) HealthCheck(ctx context.Context, id string) error {
 	return r.supervisor.HealthCheck(ctx, id)
+}
+
+func (r *Runtime) healthLoop(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	failures := map[string]int{}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			for _, id := range r.supervisor.List() {
+				if err := r.supervisor.HealthCheck(ctx, id); err != nil {
+					failures[id]++
+					if failures[id] >= 3 {
+						_ = r.events.Publish(context.Background(), types.Event{
+							ID:        fmt.Sprintf("%s-health-%d", id, time.Now().UnixNano()),
+							Type:      "plugin.error",
+							Source:    "core.runtime",
+							CreatedAt: time.Now().UTC(),
+							Payload: map[string]any{
+								"id":       id,
+								"failures": failures[id],
+								"error":    err.Error(),
+							},
+						})
+						failures[id] = 0
+					}
+				} else {
+					failures[id] = 0
+				}
+			}
+		}
+	}
 }
 
 func (r *Runtime) Actions() []types.ActionRequest {
