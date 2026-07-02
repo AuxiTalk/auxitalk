@@ -187,6 +187,23 @@ Recommended next work:
 - `AuxiTalk/auxitalk` — core runtime.
 - `AuxiTalk/plugin-template` — official plugin templates and authoring documentation.
 
+## AI-assisted development
+
+This repository is prepared for collaboration with AI coding agents.
+
+Agents should read:
+
+- `AGENTS.md`
+- `CLAUDE.md`
+- `docs/ai-development-guide.md`
+- `docs/product/vision.md`
+
+Required verification for code changes:
+
+```sh
+go test ./...
+```
+
 ## Documentation
 
 Important docs:
