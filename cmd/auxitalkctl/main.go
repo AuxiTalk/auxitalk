@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
+	"strings"
 )
 
 func main() {
@@ -21,7 +23,8 @@ func main() {
 		fmt.Println("  plugins           List plugins")
 		fmt.Println("  actions           List actions")
 		fmt.Println("  workflows         List workflows")
-		fmt.Println("  logs              Print core log file")
+		fmt.Println("  reload <config>   Reload workflows from config file")
+		fmt.Println("  logs [-f]         Print or tail core log file")
 		fmt.Println("  approve <id>      Approve an action by ID")
 		fmt.Println("  deny <id>         Deny an action by ID")
 		return
@@ -37,8 +40,18 @@ func main() {
 		printActions(*coreURL)
 	case "workflows":
 		printWorkflows(*coreURL)
+	case "reload":
+		if flag.NArg() < 2 {
+			fmt.Println("missing config file path")
+			os.Exit(1)
+		}
+		reloadWorkflows(*coreURL, flag.Arg(1))
 	case "logs":
-		printLogs(*logPath)
+		follow := false
+		if flag.NArg() > 1 && flag.Arg(1) == "-f" {
+			follow = true
+		}
+		printLogs(*logPath, follow)
 	case "approve":
 		if flag.NArg() < 2 {
 			fmt.Println("missing action id")
@@ -77,13 +90,47 @@ func printWorkflows(base string) {
 	fmt.Printf("%s\n", pretty(data))
 }
 
-func printLogs(path string) {
+func printLogs(path string, follow bool) {
+	if follow {
+		cmd := exec.Command("tail", "-f", path)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		_ = cmd.Run()
+		return
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Printf("error reading logs: %v\n", err)
 		os.Exit(1)
 	}
 	fmt.Print(string(data))
+}
+
+func reloadWorkflows(base string, configPath string) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		fmt.Printf("error reading config: %v\n", err)
+		os.Exit(1)
+	}
+
+	url := fmt.Sprintf("%s/api/workflows/reload", base)
+	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(string(data)))
+	if err != nil {
+		fmt.Printf("error building request: %v\n", err)
+		os.Exit(1)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		fmt.Printf("error: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		fmt.Printf("error: server returned %s\n", resp.Status)
+		os.Exit(1)
+	}
+	fmt.Println("workflows reloaded")
 }
 
 func mutateAction(base, id, operation string) {
