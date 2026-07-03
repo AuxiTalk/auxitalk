@@ -167,6 +167,7 @@ func (p *PluginProcess) Stop() error {
 }
 
 func (p *PluginProcess) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	fmt.Printf("[supervisor] call plugin=%s method=%s\n", p.spec.ID, method)
 	return p.callWithRetry(ctx, method, params, 1)
 }
 
@@ -365,6 +366,7 @@ func (p *PluginProcess) monitor() {
 	p.mu.Unlock()
 
 	if shouldRestart {
+		fmt.Printf("[supervisor] restarting plugin=%s restarts=%d\n", p.spec.ID, p.restarts)
 		time.Sleep(p.opts.RestartBackoff)
 		p.mu.Lock()
 		_ = p.startLocked(p.ctx)
@@ -386,7 +388,9 @@ func (p *PluginProcess) healthLoop() {
 				p.healthFailures++
 				p.lastError = err
 				p.emitStatusLocked()
+				fmt.Printf("[supervisor] health fail plugin=%s failures=%d\n", p.spec.ID, p.healthFailures)
 				if p.healthFailures >= p.opts.MaxHealthFailures && p.cmd != nil && p.cmd.Process != nil {
+					fmt.Printf("[supervisor] killing plugin=%s due to health failures\n", p.spec.ID)
 					_ = p.cmd.Process.Kill()
 					p.mu.Unlock()
 					return

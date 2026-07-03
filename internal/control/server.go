@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -44,6 +45,7 @@ func New(addr string, runtime Runtime) *Server {
 }
 
 func (s *Server) Start() error {
+	fmt.Printf("[control] listening on %s\n", s.server.Addr)
 	return s.server.ListenAndServe()
 }
 

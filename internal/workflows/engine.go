@@ -83,6 +83,7 @@ func (e *Engine) HandleEvent(ctx context.Context, event types.Event) ([]types.Ac
 	e.mu.RUnlock()
 
 	requested := []types.ActionRequest{}
+	fmt.Printf("[workflow] handle event type=%s source=%s rules=%d\n", event.Type, event.Source, len(rules))
 	for _, rule := range rules {
 		if !rule.Matches(event) {
 			continue

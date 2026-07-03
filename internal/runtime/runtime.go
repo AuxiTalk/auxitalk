@@ -78,6 +78,7 @@ func New(options Options) *Runtime {
 
 func (r *Runtime) Run(ctx context.Context) error {
 	fmt.Printf("%s %s mode=%s\n", r.options.Name, r.options.Version, r.options.Config.Mode)
+	fmt.Printf("[runtime] storage=%s control=%v\n", r.options.Config.Storage.SQLitePath, r.options.Config.Control.Enabled)
 
 	if err := r.openStorage(ctx); err != nil {
 		return err
@@ -237,6 +238,7 @@ func (r *Runtime) handleWorkflowEvent(ctx context.Context, event types.Event) er
 	if r.workflowEngine == nil {
 		return nil
 	}
+	fmt.Printf("[runtime] workflow event type=%s source=%s\n", event.Type, event.Source)
 	_, err := r.workflowEngine.HandleEvent(ctx, event)
 	return err
 }
@@ -326,6 +328,7 @@ func (r *Runtime) publishActionStatus(eventType string, action types.ActionReque
 }
 
 func (r *Runtime) executeActionAsync(action types.ActionRequest) {
+	fmt.Printf("[runtime] executing action id=%s type=%s source=%s\n", action.ID, action.Type, action.Source)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), r.options.Config.Runtime.RequestTimeout.Std())
 		defer cancel()
@@ -567,7 +570,7 @@ func (r *Runtime) loadPlugins(ctx context.Context) error {
 			}
 		}
 
-		fmt.Printf("plugin started: %s\n", manifestFile.Manifest.ID)
+		fmt.Printf("[runtime] plugin started: %s kind=%s caps=%d\n", manifestFile.Manifest.ID, manifestFile.Manifest.Kind, len(manifestFile.Manifest.Capabilities))
 	}
 	return nil
 }
