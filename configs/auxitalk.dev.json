@@ -1,0 +1,53 @@
+{
+  "mode": "dev",
+  "runtime": {
+    "requestTimeout": "30s",
+    "healthTimeout": "5s",
+    "maxPayloadSize": 1048576,
+    "maxEventsPerSecond": 50
+  },
+  "storage": {
+    "sqlitePath": "./auxitalk-dev.db"
+  },
+  "plugins": [
+    {
+      "manifest": "../plugin-openai/plugin.json",
+      "enabled": true,
+      "env": {
+        "OPENAI_BASE_URL": "http://localhost:8317/v1",
+        "OPENAI_MODEL": "topmodel"
+      }
+    },
+    {
+      "manifest": "../plugin-whatsapp/plugin.json",
+      "enabled": false,
+      "env": {
+        "WHATSAPP_DB": "./whatsapp-dev.db"
+      }
+    }
+  ],
+  "workflows": [
+    {
+      "id": "demo-workflow",
+      "name": "Demo Workflow",
+      "enabled": true,
+      "rules": [
+        {
+          "id": "demo-rule",
+          "enabled": true,
+          "trigger": {
+            "eventType": "message.received",
+            "source": "whatsapp"
+          },
+          "action": {
+            "type": "emit_event",
+            "risk": "low",
+            "payload": {
+              "eventType": "demo.workflow.triggered"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
