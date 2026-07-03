@@ -10,13 +10,13 @@ import (
 func TestRegistryRegisterAndList(t *testing.T) {
 	reg := NewRegistry()
 	workflow := types.Workflow{
-		ID:      "auto-reply",
+		ID:      "workflow-1",
 		Enabled: true,
 		Rules: []types.WorkflowRule{{
 			ID:      "rule-1",
 			Enabled: true,
 			Trigger: types.WorkflowTrigger{EventType: "message.received"},
-			Action:  types.WorkflowAction{Type: "message.reply.suggest", Risk: types.ActionRiskLow},
+			Actions: []types.WorkflowAction{{Type: "message.reply", Risk: types.ActionRiskLow}},
 		}},
 	}
 	if err := reg.Register(workflow); err != nil {
@@ -26,7 +26,7 @@ func TestRegistryRegisterAndList(t *testing.T) {
 	if len(reg.List()) != 1 {
 		t.Fatalf("expected 1 workflow")
 	}
-	if _, ok := reg.Get("auto-reply"); !ok {
+	if _, ok := reg.Get("workflow-1"); !ok {
 		t.Fatal("expected workflow to exist")
 	}
 
@@ -44,7 +44,7 @@ func TestRegistryEnableDisableAndEnabledRules(t *testing.T) {
 			ID:      "rule-1",
 			Enabled: true,
 			Trigger: types.WorkflowTrigger{EventType: "message.received"},
-			Action:  types.WorkflowAction{Type: "message.reply.suggest", Risk: types.ActionRiskLow},
+			Actions: []types.WorkflowAction{{Type: "message.reply.suggest", Risk: types.ActionRiskLow}},
 		}},
 	}
 	if err := reg.Register(workflow); err != nil {
@@ -80,8 +80,8 @@ func TestWorkflowDuplicateRuleID(t *testing.T) {
 	workflow := types.Workflow{
 		ID: "dup",
 		Rules: []types.WorkflowRule{
-			{ID: "rule-1", Enabled: true, Trigger: types.WorkflowTrigger{EventType: "message.received"}, Action: types.WorkflowAction{Type: "message.reply.suggest", Risk: types.ActionRiskLow}},
-			{ID: "rule-1", Enabled: true, Trigger: types.WorkflowTrigger{EventType: "message.received"}, Action: types.WorkflowAction{Type: "message.reply.suggest", Risk: types.ActionRiskLow}},
+			{ID: "rule-1", Enabled: true, Trigger: types.WorkflowTrigger{EventType: "message.received"}, Actions: []types.WorkflowAction{{Type: "message.reply.suggest", Risk: types.ActionRiskLow}}},
+			{ID: "rule-1", Enabled: true, Trigger: types.WorkflowTrigger{EventType: "message.received"}, Actions: []types.WorkflowAction{{Type: "message.reply.suggest", Risk: types.ActionRiskLow}}},
 		},
 	}
 	if err := workflow.Validate(); err == nil {

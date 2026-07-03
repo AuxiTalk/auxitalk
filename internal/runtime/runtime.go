@@ -171,6 +171,19 @@ func (r *Runtime) persistAction(action types.ActionRequest) {
 	}
 }
 
+func (r *Runtime) EmitEvent(ctx context.Context, event types.Event) error {
+	if event.ID == "" {
+		event.ID = fmt.Sprintf("api-event-%d", time.Now().UnixNano())
+	}
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt = time.Now().UTC()
+	}
+	if event.Source == "" {
+		event.Source = "api"
+	}
+	return r.events.Publish(ctx, event)
+}
+
 func (r *Runtime) Workflows() []types.Workflow {
 	return r.workflowRegistry.List()
 }
@@ -469,11 +482,13 @@ func (r *Runtime) executeActionAsync(action types.ActionRequest) {
 			SessionID: action.SessionID,
 			CreatedAt: time.Now().UTC(),
 			Payload: map[string]any{
-				"actionId": action.ID,
-				"status":   execution.Status,
-				"error":    execution.Error,
-				"result":   execution.Result,
-				"dryRun":   execution.DryRun,
+				"actionId":   action.ID,
+				"actionType": action.Type,
+				"actionSource": action.Source,
+				"status":     execution.Status,
+				"error":      execution.Error,
+				"result":     execution.Result,
+				"dryRun":     execution.DryRun,
 			},
 		})
 	}()

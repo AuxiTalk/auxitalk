@@ -89,47 +89,53 @@ func (e *Engine) HandleEvent(ctx context.Context, event types.Event) ([]types.Ac
 		if !rule.Matches(event) {
 			continue
 		}
-		action := e.newAction(rule, event)
-		if err := action.Validate(); err != nil {
-			return requested, err
-		}
-		if e.sink != nil {
-			if err := e.sink.RequestAction(ctx, action); err != nil {
+		for _, reqAction := range e.newActions(rule, event) {
+			if err := reqAction.Validate(); err != nil {
 				return requested, err
 			}
+			if e.sink != nil {
+				if err := e.sink.RequestAction(ctx, reqAction); err != nil {
+					return requested, err
+				}
+			}
+			requested = append(requested, reqAction)
 		}
-		requested = append(requested, action)
 	}
 	return requested, nil
 }
 
-func (e *Engine) newAction(rule types.WorkflowRule, event types.Event) types.ActionRequest {
-	e.mu.Lock()
-	e.idSeq++
-	seq := e.idSeq
-	now := e.now()
-	e.mu.Unlock()
+func (e *Engine) newActions(rule types.WorkflowRule, event types.Event) []types.ActionRequest {
+	actions := rule.GetActions()
+	requests := make([]types.ActionRequest, 0, len(actions))
+	for _, action := range actions {
+		e.mu.Lock()
+		e.idSeq++
+		seq := e.idSeq
+		now := e.now()
+		e.mu.Unlock()
 
-	payload := map[string]any{
-		"workflowRuleId": rule.ID,
-		"eventId":        event.ID,
-		"eventType":      event.Type,
-		"eventSource":    event.Source,
-	}
-	for key, value := range rule.Action.Payload {
-		payload[key] = interpolate(value, event)
-	}
+		payload := map[string]any{
+			"workflowRuleId": rule.ID,
+			"eventId":        event.ID,
+			"eventType":      event.Type,
+			"eventSource":    event.Source,
+		}
+		for key, value := range action.Payload {
+			payload[key] = interpolate(value, event)
+		}
 
-	return types.ActionRequest{
-		ID:        fmt.Sprintf("workflow-%s-%d", rule.ID, seq),
-		Type:      rule.Action.Type,
-		Risk:      rule.Action.Risk,
-		Status:    types.ActionStatusRequested,
-		Source:    "workflow:" + rule.ID,
-		SessionID: event.SessionID,
-		Payload:   payload,
-		CreatedAt: now,
+		requests = append(requests, types.ActionRequest{
+			ID:        fmt.Sprintf("workflow-%s-%d", rule.ID, seq),
+			Type:      action.Type,
+			Risk:      action.Risk,
+			Status:    types.ActionStatusRequested,
+			Source:    "workflow:" + rule.ID,
+			SessionID: event.SessionID,
+			Payload:   payload,
+			CreatedAt: now,
+		})
 	}
+	return requests
 }
 
 func interpolate(value any, event types.Event) any {

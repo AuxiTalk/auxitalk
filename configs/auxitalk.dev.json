@@ -42,24 +42,57 @@
   ],
   "workflows": [
     {
-      "id": "demo-workflow",
-      "name": "Demo Workflow",
+      "id": "whatsapp-to-ai",
+      "name": "Auto-Reply AI",
       "enabled": true,
       "rules": [
         {
-          "id": "demo-rule",
+          "id": "ask-ai",
           "enabled": true,
           "trigger": {
             "eventType": "message.received",
             "source": "whatsapp"
           },
-          "action": {
-            "type": "emit_event",
-            "risk": "low",
-            "payload": {
-              "eventType": "demo.workflow.triggered"
+          "actions": [
+            {
+              "type": "openai.ai.complete",
+              "risk": "medium",
+              "payload": {
+                "prompt": "{{payload.text}}",
+                "system": "You are a friendly AI assistant responding on WhatsApp. Keep your answers short, using up to 2 sentences. Use emojis."
+              }
             }
-          }
+          ]
+        },
+        {
+          "id": "reply-whatsapp",
+          "enabled": true,
+          "trigger": {
+            "eventType": "action.executed",
+            "source": "core.runtime",
+            "conditions": [
+              {
+                "field": "payload.actionType",
+                "operator": "==",
+                "value": "openai.ai.complete"
+              },
+              {
+                "field": "payload.status",
+                "operator": "==",
+                "value": "completed"
+              }
+            ]
+          },
+          "actions": [
+            {
+              "type": "whatsapp.message.send",
+              "risk": "low",
+              "payload": {
+                "to": "{{event.sessionId}}",
+                "text": "{{payload.result.text}}"
+              }
+            }
+          ]
         }
       ]
     }

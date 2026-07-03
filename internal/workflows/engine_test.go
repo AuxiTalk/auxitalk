@@ -23,13 +23,13 @@ func TestEngineHandlesEventAndRequestsAction(t *testing.T) {
 		ID:      "auto-reply",
 		Enabled: true,
 		Trigger: types.WorkflowTrigger{EventType: "message.received", Source: "whatsapp"},
-		Action: types.WorkflowAction{
+		Actions: []types.WorkflowAction{{
 			Type: "message.reply.suggest",
 			Risk: types.ActionRiskMedium,
 			Payload: map[string]any{
 				"agent": "support",
 			},
-		},
+		}},
 	}})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
@@ -64,7 +64,7 @@ func TestEngineInterpolatesEventPayload(t *testing.T) {
 		ID:      "payload-reply",
 		Enabled: true,
 		Trigger: types.WorkflowTrigger{EventType: "message.received"},
-		Action: types.WorkflowAction{
+		Actions: []types.WorkflowAction{{
 			Type: "message.reply.suggest",
 			Risk: types.ActionRiskMedium,
 			Payload: map[string]any{
@@ -73,7 +73,7 @@ func TestEngineInterpolatesEventPayload(t *testing.T) {
 					"from": "{{event.payload.from}}",
 				},
 			},
-		},
+		}},
 	}})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
@@ -108,7 +108,7 @@ func TestEngineIgnoresNonMatchingEvent(t *testing.T) {
 		ID:      "terminal-command",
 		Enabled: true,
 		Trigger: types.WorkflowTrigger{EventType: "terminal.output"},
-		Action:  types.WorkflowAction{Type: "terminal.command.suggest", Risk: types.ActionRiskHigh},
+		Actions: []types.WorkflowAction{{Type: "terminal.command.suggest", Risk: types.ActionRiskHigh}},
 	}})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)

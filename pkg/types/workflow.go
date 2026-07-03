@@ -2,12 +2,20 @@ package types
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 )
 
+type WorkflowCondition struct {
+	Field    string `json:"field"`
+	Operator string `json:"operator"`
+	Value    string `json:"value"`
+}
+
 type WorkflowTrigger struct {
-	EventType string `json:"eventType"`
-	Source    string `json:"source,omitempty"`
+	EventType  string              `json:"eventType"`
+	Source     string              `json:"source,omitempty"`
+	Conditions []WorkflowCondition `json:"conditions,omitempty"`
 }
 
 type WorkflowAction struct {
@@ -24,11 +32,12 @@ type Workflow struct {
 }
 
 type WorkflowRule struct {
-	ID      string          `json:"id"`
-	Name    string          `json:"name,omitempty"`
-	Enabled bool            `json:"enabled"`
-	Trigger WorkflowTrigger `json:"trigger"`
-	Action  WorkflowAction  `json:"action"`
+	ID      string           `json:"id"`
+	Name    string           `json:"name,omitempty"`
+	Enabled bool             `json:"enabled"`
+	Trigger WorkflowTrigger  `json:"trigger"`
+	Action  *WorkflowAction  `json:"action,omitempty"` // Deprecated, use Actions
+	Actions []WorkflowAction `json:"actions,omitempty"`
 }
 
 func (w Workflow) Validate() error {
@@ -71,13 +80,29 @@ func (r WorkflowRule) Validate() error {
 	if strings.TrimSpace(r.Trigger.EventType) == "" {
 		return errors.New("workflow trigger eventType is required")
 	}
-	if strings.TrimSpace(r.Action.Type) == "" {
-		return errors.New("workflow action type is required")
+	actions := r.GetActions()
+	if len(actions) == 0 {
+		return errors.New("workflow requires at least one action")
 	}
-	switch r.Action.Risk {
-	case ActionRiskLow, ActionRiskMedium, ActionRiskHigh:
-	default:
-		return errors.New("workflow action risk is invalid")
+	for _, action := range actions {
+		if strings.TrimSpace(action.Type) == "" {
+			return errors.New("workflow action type is required")
+		}
+		switch action.Risk {
+		case ActionRiskLow, ActionRiskMedium, ActionRiskHigh:
+		default:
+			return errors.New("workflow action risk is invalid")
+		}
+	}
+	return nil
+}
+
+func (r WorkflowRule) GetActions() []WorkflowAction {
+	if len(r.Actions) > 0 {
+		return r.Actions
+	}
+	if r.Action != nil {
+		return []WorkflowAction{*r.Action}
 	}
 	return nil
 }
@@ -92,5 +117,41 @@ func (r WorkflowRule) Matches(event Event) bool {
 	if r.Trigger.Source != "" && r.Trigger.Source != event.Source {
 		return false
 	}
+	for _, cond := range r.Trigger.Conditions {
+		if !cond.Matches(event) {
+			return false
+		}
+	}
 	return true
+}
+
+func (c WorkflowCondition) Matches(event Event) bool {
+	var actual string
+	if c.Field == "sessionId" {
+		actual = event.SessionID
+	} else if strings.HasPrefix(c.Field, "payload.") {
+		key := strings.TrimPrefix(c.Field, "payload.")
+		if val, ok := event.Payload[key]; ok {
+			actual = fmt.Sprint(val)
+		}
+	} else {
+		return false // unsupported field
+	}
+
+	switch c.Operator {
+	case "equals", "==":
+		return actual == c.Value
+	case "not_equals", "!=":
+		return actual != c.Value
+	case "contains":
+		return strings.Contains(actual, c.Value)
+	case "not_contains":
+		return !strings.Contains(actual, c.Value)
+	case "starts_with":
+		return strings.HasPrefix(actual, c.Value)
+	case "ends_with":
+		return strings.HasSuffix(actual, c.Value)
+	default:
+		return false
+	}
 }

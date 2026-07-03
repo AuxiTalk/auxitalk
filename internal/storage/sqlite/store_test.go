@@ -64,7 +64,7 @@ func TestStorePersistsEventsActionsAndWorkflows(t *testing.T) {
 			ID:      "rule-1",
 			Enabled: true,
 			Trigger: types.WorkflowTrigger{EventType: "message.received"},
-			Action:  types.WorkflowAction{Type: types.WorkflowActionEmitEvent, Risk: types.ActionRiskLow},
+			Actions: []types.WorkflowAction{{Type: types.WorkflowActionEmitEvent, Risk: types.ActionRiskLow}},
 		}},
 	}
 	if err := store.SaveWorkflow(ctx, workflow); err != nil {
@@ -85,7 +85,7 @@ func TestStorePersistsEventsActionsAndWorkflows(t *testing.T) {
 			ID:      "rule-2",
 			Enabled: true,
 			Trigger: types.WorkflowTrigger{EventType: "test.event"},
-			Action:  types.WorkflowAction{Type: types.WorkflowActionEmitEvent, Risk: types.ActionRiskLow},
+			Actions: []types.WorkflowAction{{Type: types.WorkflowActionEmitEvent, Risk: types.ActionRiskLow}},
 		}},
 	}
 	if err := store.ReplaceWorkflows(ctx, []types.Workflow{replacement}); err != nil {

@@ -26,6 +26,7 @@ type Runtime interface {
 	ReloadWorkflows(workflows []types.Workflow) error
 	EnableWorkflow(id string) error
 	DisableWorkflow(id string) error
+	EmitEvent(ctx context.Context, event types.Event) error
 }
 
 type Server struct {
@@ -42,7 +43,7 @@ func New(addr string, runtime Runtime) *Server {
 	mux.HandleFunc("/health", s.health)
 	mux.HandleFunc("/api/status", s.status)
 	mux.HandleFunc("/api/plugins", s.plugins)
-	mux.HandleFunc("/api/events", s.events)
+	mux.HandleFunc("/api/events", s.eventsRoute)
 	mux.HandleFunc("/api/events/stream", s.eventsStream)
 	mux.HandleFunc("/api/actions", s.actions)
 	mux.HandleFunc("/api/actions/stream", s.actionsStream)
@@ -84,7 +85,20 @@ func (s *Server) plugins(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.runtime.PluginStatuses())
 }
 
-func (s *Server) events(w http.ResponseWriter, r *http.Request) {
+func (s *Server) eventsRoute(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		var event types.Event
+		if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := s.runtime.EmitEvent(r.Context(), event); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "id": event.ID})
+		return
+	}
 	writeJSON(w, s.runtime.RecentEvents())
 }
 

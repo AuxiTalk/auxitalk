@@ -67,13 +67,13 @@ done
 				},
 			}},
 			Workflows: []types.Workflow{{
-				ID:      "fake-workflow",
+				ID:      "wf-1",
 				Enabled: true,
 				Rules: []types.WorkflowRule{{
 					ID:      "fake-rule",
 					Enabled: true,
-					Trigger: types.WorkflowTrigger{EventType: "fake.started", Source: "fake-plugin"},
-					Action:  types.WorkflowAction{Type: types.WorkflowActionEmitEvent, Risk: types.ActionRiskLow},
+					Trigger: types.WorkflowTrigger{EventType: "fake.started"},
+					Actions: []types.WorkflowAction{{Type: types.WorkflowActionEmitEvent, Risk: types.ActionRiskLow}},
 				}},
 			}},
 		},
