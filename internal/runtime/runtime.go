@@ -172,6 +172,17 @@ func (r *Runtime) Workflows() []types.Workflow {
 	return r.workflowRegistry.List()
 }
 
+func (r *Runtime) ReloadWorkflows(newWorkflows []types.Workflow) error {
+	newRegistry := workflows.NewRegistry()
+	for _, workflow := range newWorkflows {
+		if err := newRegistry.Register(workflow); err != nil {
+			return err
+		}
+	}
+	r.workflowRegistry = newRegistry
+	return r.workflowEngine.SetRules(newRegistry.EnabledRules())
+}
+
 func (r *Runtime) RequestAction(ctx context.Context, action types.ActionRequest) error {
 	if action.Source == "" {
 		action.Source = "workflow"

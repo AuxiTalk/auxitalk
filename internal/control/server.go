@@ -20,6 +20,7 @@ type Runtime interface {
 	Workflows() []types.Workflow
 	ApproveAction(id string) (types.ActionRequest, error)
 	DenyAction(id string) (types.ActionRequest, error)
+	ReloadWorkflows(workflows []types.Workflow) error
 }
 
 type Server struct {
@@ -40,6 +41,7 @@ func New(addr string, runtime Runtime) *Server {
 	mux.HandleFunc("/api/actions", s.actions)
 	mux.HandleFunc("/api/workflows", s.workflows)
 	mux.HandleFunc("/api/actions/", s.actionMutation)
+	mux.HandleFunc("/api/workflows/reload", s.reloadWorkflows)
 	s.server = &http.Server{Addr: addr, Handler: withCORS(mux)}
 	return s
 }
@@ -82,6 +84,25 @@ func (s *Server) actions(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) workflows(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.runtime.Workflows())
+}
+
+func (s *Server) reloadWorkflows(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var payload struct {
+		Workflows []types.Workflow `json:"workflows"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.runtime.ReloadWorkflows(payload.Workflows); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
 }
 
 func (s *Server) actionMutation(w http.ResponseWriter, r *http.Request) {
