@@ -11,6 +11,248 @@ import (
 	"github.com/Brook-sys/auxitalk/pkg/types"
 )
 
+func TestRuntimeChainsWorkflowsThroughActionExecuted(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "plugin.sh")
+	counter := filepath.Join(dir, "calls")
+	if err := os.WriteFile(script, []byte(`#!/usr/bin/env sh
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+  method=$(printf '%s' "$line" | sed -n 's/.*"method":"\([^"]*\)".*/\1/p')
+  if [ "$method" = "capability.call" ]; then
+    count=0
+    if [ -f "`+counter+`" ]; then count=$(cat "`+counter+`"); fi
+    count=$((count + 1))
+    printf '%s' "$count" > "`+counter+`"
+    printf '{"jsonrpc":"2.0","id":"%s","result":{"text":"call-%s"}}\n' "$id" "$count"
+  elif [ "$method" = "plugin.stop" ]; then
+    printf '{"jsonrpc":"2.0","id":"%s","result":{"ok":true}}\n' "$id"
+    exit 0
+  else
+    printf '{"jsonrpc":"2.0","id":"%s","result":{"ok":true}}\n' "$id"
+  fi
+done
+`), 0o700); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	manifest := filepath.Join(dir, "plugin.json")
+	if err := os.WriteFile(manifest, []byte(`{
+  "id": "fakeai",
+  "name": "Fake AI",
+  "version": "0.1.0",
+  "runtime": "sh",
+  "entry": "./plugin.sh",
+  "kind": "ai",
+  "capabilities": [{"name":"ai.complete"}]
+}`), 0o600); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	r := New(Options{
+		Name:    "test",
+		Version: "dev",
+		Config: config.Config{
+			Mode: config.ModeDev,
+			Runtime: config.Runtime{
+				RequestTimeout:     config.Duration(time.Second),
+				HealthTimeout:      config.Duration(time.Second),
+				MaxPayloadSize:     1024 * 1024,
+				MaxEventsPerSecond: 50,
+			},
+			Plugins: []config.Plugin{{Manifest: manifest, Enabled: true}},
+			Workflows: []types.Workflow{{
+				ID:      "wf-chain",
+				Enabled: true,
+				Rules: []types.WorkflowRule{
+					{
+						ID:      "first",
+						Enabled: true,
+						Trigger: types.WorkflowTrigger{EventType: "message.received", Source: "test"},
+						Actions: []types.WorkflowAction{{
+							Type:    "fakeai.ai.complete",
+							Risk:    types.ActionRiskLow,
+							Payload: map[string]any{"prompt": "first"},
+						}},
+					},
+					{
+						ID:      "second",
+						Enabled: true,
+						Trigger: types.WorkflowTrigger{
+							EventType: "action.executed",
+							Source:    "core.runtime",
+							Conditions: []types.WorkflowCondition{
+								{Field: "payload.actionSource", Operator: "==", Value: "workflow:first"},
+								{Field: "payload.status", Operator: "==", Value: "completed"},
+							},
+						},
+						Actions: []types.WorkflowAction{{
+							Type:    "fakeai.ai.complete",
+							Risk:    types.ActionRiskLow,
+							Payload: map[string]any{"prompt": "second {{payload.result.text}}"},
+						}},
+					},
+				},
+			}},
+		},
+	})
+
+	done := make(chan error, 1)
+	go func() { done <- r.Run(ctx) }()
+	defer func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("runtime did not stop")
+		}
+	}()
+
+	for i := 0; i < 50; i++ {
+		if len(r.PluginStatuses()) == 1 && r.PluginStatuses()[0].Running {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if err := r.EmitEvent(context.Background(), types.Event{ID: "event-1", Type: "message.received", Source: "test", Payload: map[string]any{"text": "hello"}, CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("emit event: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if data, err := os.ReadFile(counter); err == nil && string(data) == "2" {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	data, _ := os.ReadFile(counter)
+	t.Fatalf("expected chained workflows to call capability twice, got %q", string(data))
+}
+
+func TestRuntimeWorkflowCallsPluginCapability(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "plugin.sh")
+	if err := os.WriteFile(script, []byte(`#!/usr/bin/env sh
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+  method=$(printf '%s' "$line" | sed -n 's/.*"method":"\([^"]*\)".*/\1/p')
+  if [ "$method" = "capability.call" ]; then
+    printf called > capability-called.txt
+    printf '{"jsonrpc":"2.0","id":"%s","result":{"text":"fake capability ok"}}\n' "$id"
+  elif [ "$method" = "plugin.stop" ]; then
+    printf '{"jsonrpc":"2.0","id":"%s","result":{"ok":true}}\n' "$id"
+    exit 0
+  else
+    printf '{"jsonrpc":"2.0","id":"%s","result":{"ok":true}}\n' "$id"
+  fi
+done
+`), 0o700); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	manifest := filepath.Join(dir, "plugin.json")
+	if err := os.WriteFile(manifest, []byte(`{
+  "id": "fakeai",
+  "name": "Fake AI",
+  "version": "0.1.0",
+  "runtime": "sh",
+  "entry": "./plugin.sh",
+  "kind": "ai",
+  "capabilities": [{"name":"ai.complete"}]
+}`), 0o600); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	r := New(Options{
+		Name:    "test",
+		Version: "dev",
+		Config: config.Config{
+			Mode: config.ModeDev,
+			Runtime: config.Runtime{
+				RequestTimeout:     config.Duration(time.Second),
+				HealthTimeout:      config.Duration(time.Second),
+				MaxPayloadSize:     1024 * 1024,
+				MaxEventsPerSecond: 50,
+			},
+			Plugins: []config.Plugin{{Manifest: manifest, Enabled: true}},
+			Workflows: []types.Workflow{{
+				ID:      "wf-capability",
+				Enabled: true,
+				Rules: []types.WorkflowRule{{
+					ID:      "call-fakeai",
+					Enabled: true,
+					Trigger: types.WorkflowTrigger{EventType: "message.received", Source: "test"},
+					Actions: []types.WorkflowAction{{
+						Type: "fakeai.ai.complete",
+						Risk: types.ActionRiskLow,
+						Payload: map[string]any{
+							"prompt": "{{payload.text}}",
+						},
+					}},
+				}},
+			}},
+		},
+	})
+
+	executed := make(chan types.Event, 1)
+	sub, err := r.Events().Subscribe("action.executed", func(ctx context.Context, event types.Event) error {
+		executed <- event
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	defer sub.Unsubscribe()
+
+	done := make(chan error, 1)
+	go func() { done <- r.Run(ctx) }()
+	defer func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("runtime did not stop")
+		}
+	}()
+
+	for i := 0; i < 50; i++ {
+		if len(r.PluginStatuses()) == 1 && r.PluginStatuses()[0].Running {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if err := r.EmitEvent(context.Background(), types.Event{
+		ID:        "event-1",
+		Type:      "message.received",
+		Source:    "test",
+		Payload:   map[string]any{"text": "hello"},
+		CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("emit event: %v", err)
+	}
+
+	select {
+	case event := <-executed:
+		if event.Payload["actionType"] != "fakeai.ai.complete" || event.Payload["status"] != types.ActionExecutionCompleted {
+			t.Fatalf("unexpected action.executed payload: %+v", event.Payload)
+		}
+		result := event.Payload["result"].(map[string]any)
+		if result["text"] != "fake capability ok" {
+			t.Fatalf("unexpected result: %+v", result)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected action.executed event")
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "capability-called.txt")); err != nil {
+		t.Fatalf("capability was not called: %v", err)
+	}
+}
+
 func TestRuntimeLoadsEnabledPluginManifest(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "plugin.sh")

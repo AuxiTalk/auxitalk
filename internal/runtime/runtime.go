@@ -495,7 +495,18 @@ func (r *Runtime) executeActionAsync(action types.ActionRequest) {
 					CompletedAt: time.Now().UTC(),
 				}
 				if result != nil {
-					if resMap, ok := result.(map[string]any); ok {
+					if raw, ok := result.(json.RawMessage); ok {
+						var decoded any
+						if err := json.Unmarshal(raw, &decoded); err == nil {
+							if resMap, ok := decoded.(map[string]any); ok {
+								execution.Result = resMap
+							} else {
+								execution.Result = map[string]any{"data": decoded}
+							}
+						} else {
+							execution.Result = map[string]any{"data": string(raw)}
+						}
+					} else if resMap, ok := result.(map[string]any); ok {
 						execution.Result = resMap
 					} else {
 						execution.Result = map[string]any{"data": result}

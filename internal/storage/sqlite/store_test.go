@@ -2,12 +2,84 @@ package sqlite
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/Brook-sys/auxitalk/pkg/types"
 )
+
+func TestStoreHandlesConcurrentWrites(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "auxitalk.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	errs := make(chan error, 200)
+	for i := 0; i < 100; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := store.SaveEvent(ctx, types.Event{
+				ID:        fmt.Sprintf("event-%d", i),
+				Type:      "test.event",
+				Source:    "test",
+				SessionID: fmt.Sprintf("session-%d", i%10),
+				Payload:   map[string]any{"n": i},
+				CreatedAt: time.Now().UTC(),
+			})
+			if err != nil {
+				errs <- err
+			}
+		}()
+	}
+	for i := 0; i < 100; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := store.SaveAction(ctx, types.ActionRequest{
+				ID:        fmt.Sprintf("action-%d", i),
+				Type:      types.WorkflowActionEmitEvent,
+				Risk:      types.ActionRiskLow,
+				Status:    types.ActionStatusAllowed,
+				Source:    "test",
+				SessionID: fmt.Sprintf("session-%d", i%10),
+				Payload:   map[string]any{"n": i},
+				CreatedAt: time.Now().UTC(),
+			})
+			if err != nil {
+				errs <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent write failed: %v", err)
+	}
+
+	events, err := store.ListEvents(ctx, 200)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 100 {
+		t.Fatalf("expected 100 events, got %d", len(events))
+	}
+	actions, err := store.ListActions(ctx, 200)
+	if err != nil {
+		t.Fatalf("list actions: %v", err)
+	}
+	if len(actions) != 100 {
+		t.Fatalf("expected 100 actions, got %d", len(actions))
+	}
+}
 
 func TestStorePersistsEventsActionsAndWorkflows(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "auxitalk.db"))

@@ -154,3 +154,35 @@ func TestSubscribeRequiresHandler(t *testing.T) {
 		t.Fatal("expected missing handler error")
 	}
 }
+
+func TestPublishRejectsEventDepthOverLimit(t *testing.T) {
+	bus := New(Options{HandlerTimeout: time.Second})
+	event := testEvent()
+	event.Depth = 21
+
+	if err := bus.Publish(context.Background(), event); err == nil {
+		t.Fatal("expected max depth error")
+	}
+}
+
+func TestPublishAllowsEventAtDepthLimit(t *testing.T) {
+	bus := New(Options{HandlerTimeout: time.Second})
+	event := testEvent()
+	event.Depth = 20
+	called := false
+
+	_, err := bus.Subscribe("message.received", func(_ context.Context, _ types.Event) error {
+		called = true
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+
+	if err := bus.Publish(context.Background(), event); err != nil {
+		t.Fatalf("publish at max depth: %v", err)
+	}
+	if !called {
+		t.Fatal("expected handler call at max depth")
+	}
+}
