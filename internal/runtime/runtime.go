@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -173,10 +175,77 @@ func (r *Runtime) Workflows() []types.Workflow {
 	return r.workflowRegistry.List()
 }
 
+func (r *Runtime) Logs(limit int64) (string, error) {
+	path := r.options.Config.Runtime.LogPath
+	if path == "" {
+		return "", nil
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return "", err
+	}
+	if limit <= 0 {
+		limit = 64 * 1024
+	}
+	start := info.Size() - limit
+	if start < 0 {
+		start = 0
+	}
+	if _, err := file.Seek(start, 0); err != nil {
+		return "", err
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func (r *Runtime) EnableWorkflow(id string) error {
+	workflows := r.workflowRegistry.List()
+	changed := false
+	for i, w := range workflows {
+		if w.ID == id {
+			workflows[i].Enabled = true
+			changed = true
+			break
+		}
+	}
+	if !changed {
+		return fmt.Errorf("workflow not found: %s", id)
+	}
+	return r.ReloadWorkflows(workflows)
+}
+
+func (r *Runtime) DisableWorkflow(id string) error {
+	workflows := r.workflowRegistry.List()
+	changed := false
+	for i, w := range workflows {
+		if w.ID == id {
+			workflows[i].Enabled = false
+			changed = true
+			break
+		}
+	}
+	if !changed {
+		return fmt.Errorf("workflow not found: %s", id)
+	}
+	return r.ReloadWorkflows(workflows)
+}
 func (r *Runtime) ReloadWorkflows(newWorkflows []types.Workflow) error {
 	newRegistry := workflows.NewRegistry()
 	for _, workflow := range newWorkflows {
 		if err := newRegistry.Register(workflow); err != nil {
+			return err
+		}
+	}
+	if r.storage != nil {
+		if err := r.storage.ReplaceWorkflows(context.Background(), newWorkflows); err != nil {
 			return err
 		}
 	}

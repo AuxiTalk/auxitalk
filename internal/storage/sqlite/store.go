@@ -172,6 +172,30 @@ func (s *Store) SaveWorkflow(ctx context.Context, workflow types.Workflow) error
 	return err
 }
 
+func (s *Store) ReplaceWorkflows(ctx context.Context, workflows []types.Workflow) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM workflows`); err != nil {
+		return err
+	}
+	for _, workflow := range workflows {
+		if err := workflow.Validate(); err != nil {
+			return err
+		}
+		data, err := json.Marshal(workflow)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflows (id, workflow_json) VALUES (?, ?)`, workflow.ID, string(data)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 func (s *Store) ListWorkflows(ctx context.Context) ([]types.Workflow, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT workflow_json FROM workflows ORDER BY id ASC`)
 	if err != nil {

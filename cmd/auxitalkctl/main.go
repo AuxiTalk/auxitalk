@@ -95,6 +95,7 @@ func printLogs(path string, follow bool) {
 		cmd := exec.Command("tail", "-f", path)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+		cmd.Stdin = os.Stdin
 		_ = cmd.Run()
 		return
 	}

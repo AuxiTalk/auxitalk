@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Brook-sys/auxitalk/internal/plugins/supervisor"
 	"github.com/Brook-sys/auxitalk/pkg/types"
@@ -18,9 +20,12 @@ type Runtime interface {
 	Actions() []types.ActionRequest
 	PendingActions() []types.ActionRequest
 	Workflows() []types.Workflow
+	Logs(limit int64) (string, error)
 	ApproveAction(id string) (types.ActionRequest, error)
 	DenyAction(id string) (types.ActionRequest, error)
 	ReloadWorkflows(workflows []types.Workflow) error
+	EnableWorkflow(id string) error
+	DisableWorkflow(id string) error
 }
 
 type Server struct {
@@ -38,10 +43,15 @@ func New(addr string, runtime Runtime) *Server {
 	mux.HandleFunc("/api/status", s.status)
 	mux.HandleFunc("/api/plugins", s.plugins)
 	mux.HandleFunc("/api/events", s.events)
+	mux.HandleFunc("/api/events/stream", s.eventsStream)
 	mux.HandleFunc("/api/actions", s.actions)
+	mux.HandleFunc("/api/actions/stream", s.actionsStream)
 	mux.HandleFunc("/api/workflows", s.workflows)
+	mux.HandleFunc("/api/logs", s.logs)
+	mux.HandleFunc("/api/logs/stream", s.logStream)
 	mux.HandleFunc("/api/actions/", s.actionMutation)
 	mux.HandleFunc("/api/workflows/reload", s.reloadWorkflows)
+	mux.HandleFunc("/api/workflows/", s.workflowMutation)
 	s.server = &http.Server{Addr: addr, Handler: withCORS(mux)}
 	return s
 }
@@ -78,12 +88,165 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.runtime.RecentEvents())
 }
 
+func (s *Server) eventsStream(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	var lastID string
+	for {
+		events := s.runtime.RecentEvents()
+		if len(events) > 0 {
+			latest := events[len(events)-1].ID
+			if latest != lastID {
+				data, _ := json.Marshal(events)
+				fmt.Fprintf(w, "data: %s\n\n", data)
+				flusher.Flush()
+				lastID = latest
+			}
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
 func (s *Server) actions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.runtime.Actions())
 }
 
+func (s *Server) actionsStream(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	var lastCount int
+	for {
+		actions := s.runtime.Actions()
+		if len(actions) != lastCount {
+			data, _ := json.Marshal(actions)
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+			lastCount = len(actions)
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
 func (s *Server) workflows(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.runtime.Workflows())
+}
+
+func (s *Server) logs(w http.ResponseWriter, r *http.Request) {
+	limit, ok := parseLogLimit(w, r)
+	if !ok {
+		return
+	}
+	content, err := s.runtime.Logs(limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"content": content})
+}
+
+func (s *Server) logStream(w http.ResponseWriter, r *http.Request) {
+	limit, ok := parseLogLimit(w, r)
+	if !ok {
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	last := ""
+	for {
+		content, err := s.runtime.Logs(limit)
+		if err != nil {
+			fmt.Fprintf(w, "event: error\ndata: %s\n\n", strings.ReplaceAll(err.Error(), "\n", " "))
+			flusher.Flush()
+			return
+		}
+		if content != last {
+			data, _ := json.Marshal(content)
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+			last = content
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func parseLogLimit(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	limit := int64(64 * 1024)
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 0 {
+			http.Error(w, "invalid limit", http.StatusBadRequest)
+			return 0, false
+		}
+		limit = parsed
+	}
+	return limit, true
+}
+
+func (s *Server) workflowMutation(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	path := strings.TrimPrefix(r.URL.Path, "/api/workflows/")
+	parts := strings.Split(path, "/")
+	if len(parts) != 2 {
+		http.NotFound(w, r)
+		return
+	}
+	id := parts[0]
+	operation := parts[1]
+	switch operation {
+	case "enable":
+		if err := s.runtime.EnableWorkflow(id); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	case "disable":
+		if err := s.runtime.DisableWorkflow(id); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	default:
+		http.NotFound(w, r)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
 }
 
 func (s *Server) reloadWorkflows(w http.ResponseWriter, r *http.Request) {

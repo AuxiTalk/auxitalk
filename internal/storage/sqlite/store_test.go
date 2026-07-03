@@ -77,4 +77,25 @@ func TestStorePersistsEventsActionsAndWorkflows(t *testing.T) {
 	if len(workflows) != 1 || workflows[0].ID != workflow.ID {
 		t.Fatalf("unexpected workflows: %+v", workflows)
 	}
+
+	replacement := types.Workflow{
+		ID:      "workflow-2",
+		Enabled: true,
+		Rules: []types.WorkflowRule{{
+			ID:      "rule-2",
+			Enabled: true,
+			Trigger: types.WorkflowTrigger{EventType: "test.event"},
+			Action:  types.WorkflowAction{Type: types.WorkflowActionEmitEvent, Risk: types.ActionRiskLow},
+		}},
+	}
+	if err := store.ReplaceWorkflows(ctx, []types.Workflow{replacement}); err != nil {
+		t.Fatalf("replace workflows: %v", err)
+	}
+	workflows, err = store.ListWorkflows(ctx)
+	if err != nil {
+		t.Fatalf("list replacement workflows: %v", err)
+	}
+	if len(workflows) != 1 || workflows[0].ID != replacement.ID {
+		t.Fatalf("unexpected replacement workflows: %+v", workflows)
+	}
 }

@@ -133,13 +133,34 @@ func (e *Engine) newAction(rule types.WorkflowRule, event types.Event) types.Act
 }
 
 func interpolate(value any, event types.Event) any {
-	str, ok := value.(string)
-	if !ok {
+	switch v := value.(type) {
+	case string:
+		return interpolateString(v, event)
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for key, item := range v {
+			out[key] = interpolate(item, event)
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = interpolate(item, event)
+		}
+		return out
+	default:
 		return value
 	}
+}
+
+func interpolateString(str string, event types.Event) string {
 	str = strings.ReplaceAll(str, "{{event.id}}", event.ID)
 	str = strings.ReplaceAll(str, "{{event.type}}", event.Type)
 	str = strings.ReplaceAll(str, "{{event.source}}", event.Source)
 	str = strings.ReplaceAll(str, "{{event.sessionId}}", event.SessionID)
+	for key, value := range event.Payload {
+		str = strings.ReplaceAll(str, "{{payload."+key+"}}", fmt.Sprint(value))
+		str = strings.ReplaceAll(str, "{{event.payload."+key+"}}", fmt.Sprint(value))
+	}
 	return str
 }

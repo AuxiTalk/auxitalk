@@ -58,6 +58,50 @@ func TestEngineHandlesEventAndRequestsAction(t *testing.T) {
 	}
 }
 
+func TestEngineInterpolatesEventPayload(t *testing.T) {
+	sink := &memorySink{}
+	engine, err := NewEngine(sink, []types.WorkflowRule{{
+		ID:      "payload-reply",
+		Enabled: true,
+		Trigger: types.WorkflowTrigger{EventType: "message.received"},
+		Action: types.WorkflowAction{
+			Type: "message.reply.suggest",
+			Risk: types.ActionRiskMedium,
+			Payload: map[string]any{
+				"text": "Reply to {{payload.text}} in {{event.sessionId}}",
+				"nested": map[string]any{
+					"from": "{{event.payload.from}}",
+				},
+			},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	actions, err := engine.HandleEvent(context.Background(), types.Event{
+		ID:        "event-1",
+		Type:      "message.received",
+		Source:    "whatsapp",
+		SessionID: "session-1",
+		CreatedAt: time.Now(),
+		Payload: map[string]any{
+			"text": "hello",
+			"from": "+1000",
+		},
+	})
+	if err != nil {
+		t.Fatalf("handle event: %v", err)
+	}
+	if actions[0].Payload["text"] != "Reply to hello in session-1" {
+		t.Fatalf("unexpected text: %+v", actions[0].Payload)
+	}
+	nested := actions[0].Payload["nested"].(map[string]any)
+	if nested["from"] != "+1000" {
+		t.Fatalf("unexpected nested payload: %+v", nested)
+	}
+}
+
 func TestEngineIgnoresNonMatchingEvent(t *testing.T) {
 	sink := &memorySink{}
 	engine, err := NewEngine(sink, []types.WorkflowRule{{
