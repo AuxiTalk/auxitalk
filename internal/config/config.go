@@ -58,6 +58,11 @@ type Storage struct {
 	SQLitePath string `json:"sqlitePath,omitempty"`
 }
 
+type Control struct {
+	Enabled bool   `json:"enabled"`
+	Addr    string `json:"addr,omitempty"`
+}
+
 type Plugin struct {
 	Manifest string                `json:"manifest,omitempty"`
 	Enabled  bool                  `json:"enabled"`
@@ -70,6 +75,7 @@ type Config struct {
 	Mode      Mode             `json:"mode"`
 	Runtime   Runtime          `json:"runtime"`
 	Storage   Storage          `json:"storage,omitempty"`
+	Control   Control          `json:"control,omitempty"`
 	Plugins   []Plugin         `json:"plugins"`
 	Workflows []types.Workflow `json:"workflows,omitempty"`
 }

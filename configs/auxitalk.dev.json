@@ -9,13 +9,18 @@
   "storage": {
     "sqlitePath": "./auxitalk-dev.db"
   },
+  "control": {
+    "enabled": true,
+    "addr": ":8090"
+  },
   "plugins": [
     {
       "manifest": "../plugin-openai/plugin.json",
       "enabled": true,
       "env": {
         "OPENAI_BASE_URL": "http://localhost:8317/v1",
-        "OPENAI_MODEL": "topmodel"
+        "OPENAI_MODEL": "topmodel",
+        "OPENAI_API_KEY": "dev-local-key"
       }
     },
     {

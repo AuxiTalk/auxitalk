@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/Brook-sys/auxitalk/internal/actions"
 	"github.com/Brook-sys/auxitalk/internal/capabilities"
 	"github.com/Brook-sys/auxitalk/internal/config"
+	"github.com/Brook-sys/auxitalk/internal/control"
 	"github.com/Brook-sys/auxitalk/internal/events"
 	"github.com/Brook-sys/auxitalk/internal/plugins"
 	"github.com/Brook-sys/auxitalk/internal/plugins/supervisor"
@@ -36,6 +38,7 @@ type Runtime struct {
 	supervisor       *supervisor.Supervisor
 	router           *capabilities.Router
 	storage          *storagesqlite.Store
+	controlServer    *control.Server
 }
 
 func New(options Options) *Runtime {
@@ -84,6 +87,15 @@ func (r *Runtime) Run(ctx context.Context) error {
 	}
 	if _, err := r.events.Subscribe("*", r.handleWorkflowEvent); err != nil {
 		return err
+	}
+	if r.options.Config.Control.Enabled {
+		r.controlServer = control.New(r.options.Config.Control.Addr, r)
+		go func() {
+			if err := r.controlServer.Start(); err != nil && err != http.ErrServerClosed {
+				fmt.Printf("control server error: %v\n", err)
+			}
+		}()
+		fmt.Printf("control api listening on %s\n", r.options.Config.Control.Addr)
 	}
 
 	if err := r.loadPlugins(ctx); err != nil {
@@ -541,6 +553,9 @@ func (r *Runtime) shutdown() error {
 		if err := r.supervisor.Stop(id); err != nil {
 			fmt.Printf("plugin stop error %s: %v\n", id, err)
 		}
+	}
+	if r.controlServer != nil {
+		_ = r.controlServer.Shutdown(context.Background())
 	}
 	if r.storage != nil {
 		return r.storage.Close()
