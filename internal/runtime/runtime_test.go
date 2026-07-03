@@ -66,6 +66,16 @@ done
 					"AUXITALK_TEST_ENV": "${AUXITALK_TEST_SECRET}",
 				},
 			}},
+			Workflows: []types.Workflow{{
+				ID:      "fake-workflow",
+				Enabled: true,
+				Rules: []types.WorkflowRule{{
+					ID:      "fake-rule",
+					Enabled: true,
+					Trigger: types.WorkflowTrigger{EventType: "fake.started", Source: "fake-plugin"},
+					Action:  types.WorkflowAction{Type: types.WorkflowActionEmitEvent, Risk: types.ActionRiskLow},
+				}},
+			}},
 		},
 	})
 
@@ -117,19 +127,32 @@ done
 	}
 
 	for i := 0; i < 50; i++ {
-		if len(r.Actions()) == 1 {
+		if len(r.Actions()) == 2 {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	actions := r.Actions()
-	if len(actions) != 1 {
-		t.Fatalf("expected one action, got %d", len(actions))
+	if len(actions) != 2 {
+		t.Fatalf("expected two actions, got %d", len(actions))
 	}
-	if actions[0].Source != "fake-plugin" || actions[0].Status != types.ActionStatusAllowed {
-		t.Fatalf("unexpected action: %+v", actions[0])
+	var pluginAction types.ActionRequest
+	var workflowAction types.ActionRequest
+	for _, action := range actions {
+		if action.Source == "fake-plugin" {
+			pluginAction = action
+		}
+		if action.Source == "workflow:fake-rule" {
+			workflowAction = action
+		}
 	}
-	denied, err := r.DenyAction(actions[0].ID)
+	if pluginAction.Status != types.ActionStatusAllowed {
+		t.Fatalf("unexpected plugin action: %+v", pluginAction)
+	}
+	if workflowAction.Type != types.WorkflowActionEmitEvent || workflowAction.Status != types.ActionStatusAllowed {
+		t.Fatalf("unexpected workflow action: %+v", workflowAction)
+	}
+	denied, err := r.DenyAction(pluginAction.ID)
 	if err != nil {
 		t.Fatalf("deny action: %v", err)
 	}

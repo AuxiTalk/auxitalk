@@ -12,6 +12,7 @@ import (
 	"github.com/Brook-sys/auxitalk/internal/events"
 	"github.com/Brook-sys/auxitalk/internal/plugins"
 	"github.com/Brook-sys/auxitalk/internal/plugins/supervisor"
+	"github.com/Brook-sys/auxitalk/internal/workflows"
 	"github.com/Brook-sys/auxitalk/pkg/protocol"
 	"github.com/Brook-sys/auxitalk/pkg/types"
 )
@@ -23,23 +24,30 @@ type Options struct {
 }
 
 type Runtime struct {
-	options    Options
-	events     *events.Bus
-	actions    *actions.Store
-	gate       *actions.Gate
-	supervisor *supervisor.Supervisor
+	options          Options
+	events           *events.Bus
+	actions          *actions.Store
+	gate             *actions.Gate
+	workflowRegistry *workflows.Registry
+	workflowEngine   *workflows.Engine
+	supervisor       *supervisor.Supervisor
 }
 
 func New(options Options) *Runtime {
 	r := &Runtime{
-		options: options,
-		actions: actions.NewStore(),
-		gate:    actions.NewGate(options.Config.Mode),
+		options:          options,
+		actions:          actions.NewStore(),
+		gate:             actions.NewGate(options.Config.Mode),
+		workflowRegistry: workflows.NewRegistry(),
 		events: events.New(events.Options{
 			HandlerTimeout: options.Config.Runtime.RequestTimeout.Std(),
 			HistoryLimit:   1000,
 		}),
 	}
+	for _, workflow := range options.Config.Workflows {
+		_ = r.workflowRegistry.Register(workflow)
+	}
+	r.workflowEngine, _ = workflows.NewEngine(r, r.workflowRegistry.EnabledRules())
 
 	r.supervisor = supervisor.NewSupervisor(supervisor.ProcessOptions{
 		CallTimeout:       options.Config.Runtime.RequestTimeout.Std(),
@@ -61,6 +69,10 @@ func New(options Options) *Runtime {
 func (r *Runtime) Run(ctx context.Context) error {
 	fmt.Printf("%s %s mode=%s\n", r.options.Name, r.options.Version, r.options.Config.Mode)
 
+	if _, err := r.events.Subscribe("*", r.handleWorkflowEvent); err != nil {
+		return err
+	}
+
 	if err := r.loadPlugins(ctx); err != nil {
 		return err
 	}
@@ -75,12 +87,47 @@ func (r *Runtime) Events() *events.Bus {
 	return r.events
 }
 
+func (r *Runtime) Workflows() []types.Workflow {
+	return r.workflowRegistry.List()
+}
+
+func (r *Runtime) RequestAction(ctx context.Context, action types.ActionRequest) error {
+	if action.Source == "" {
+		action.Source = "workflow"
+	}
+	if action.ID == "" {
+		action.ID = fmt.Sprintf("workflow-action-%d", time.Now().UnixNano())
+	}
+	if action.Status == "" {
+		action.Status = types.ActionStatusRequested
+	}
+	if action.CreatedAt.IsZero() {
+		action.CreatedAt = time.Now().UTC()
+	}
+	status, err := r.gate.Decide(action)
+	if err != nil && status == "" {
+		return err
+	}
+	action.Status = status
+	r.actions.Save(action)
+	r.publishActionStatus("action.requested", action)
+	return nil
+}
+
 func (r *Runtime) PluginStatuses() []supervisor.ProcessStatus {
 	return r.supervisor.ListStatus()
 }
 
 func (r *Runtime) HealthCheck(ctx context.Context, id string) error {
 	return r.supervisor.HealthCheck(ctx, id)
+}
+
+func (r *Runtime) handleWorkflowEvent(ctx context.Context, event types.Event) error {
+	if r.workflowEngine == nil {
+		return nil
+	}
+	_, err := r.workflowEngine.HandleEvent(ctx, event)
+	return err
 }
 
 func (r *Runtime) healthLoop(ctx context.Context) {

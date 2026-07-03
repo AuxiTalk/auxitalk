@@ -63,9 +63,10 @@ type Plugin struct {
 }
 
 type Config struct {
-	Mode    Mode     `json:"mode"`
-	Runtime Runtime  `json:"runtime"`
-	Plugins []Plugin `json:"plugins"`
+	Mode      Mode             `json:"mode"`
+	Runtime   Runtime          `json:"runtime"`
+	Plugins   []Plugin         `json:"plugins"`
+	Workflows []types.Workflow `json:"workflows,omitempty"`
 }
 
 func Default() Config {
@@ -77,7 +78,8 @@ func Default() Config {
 			MaxPayloadSize:     1024 * 1024,
 			MaxEventsPerSecond: 50,
 		},
-		Plugins: []Plugin{},
+		Plugins:   []Plugin{},
+		Workflows: []types.Workflow{},
 	}
 }
 
@@ -99,6 +101,9 @@ func Load(path string) (Config, error) {
 
 	if cfg.Plugins == nil {
 		cfg.Plugins = []Plugin{}
+	}
+	if cfg.Workflows == nil {
+		cfg.Workflows = []types.Workflow{}
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -130,6 +135,11 @@ func (c Config) Validate() error {
 
 	for _, plugin := range c.Plugins {
 		if err := plugin.Validate(); err != nil {
+			return err
+		}
+	}
+	for _, workflow := range c.Workflows {
+		if err := workflow.Validate(); err != nil {
 			return err
 		}
 	}
