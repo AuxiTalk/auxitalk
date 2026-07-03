@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Brook-sys/auxitalk/internal/actions"
@@ -44,6 +45,7 @@ type Runtime struct {
 	router           *capabilities.Router
 	storage          *storagesqlite.Store
 	controlServer    *control.Server
+	wg               sync.WaitGroup
 }
 
 func New(options Options) *Runtime {
@@ -463,7 +465,9 @@ func (r *Runtime) publishActionStatus(eventType string, action types.ActionReque
 
 func (r *Runtime) executeActionAsync(action types.ActionRequest) {
 	logger.Printf("[runtime] executing action id=%s type=%s source=%s\n", action.ID, action.Type, action.Source)
+	r.wg.Add(1)
 	go func() {
+		defer r.wg.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), r.options.Config.Runtime.RequestTimeout.Std())
 		defer cancel()
 
@@ -520,15 +524,17 @@ func (r *Runtime) executeActionAsync(action types.ActionRequest) {
 			Type:      "action.executed",
 			Source:    "core.runtime",
 			SessionID: action.SessionID,
+			TraceID:   action.TraceID,
+			Depth:     action.Depth,
 			CreatedAt: time.Now().UTC(),
 			Payload: map[string]any{
-				"actionId":   action.ID,
-				"actionType": action.Type,
+				"actionId":     action.ID,
+				"actionType":   action.Type,
 				"actionSource": action.Source,
-				"status":     execution.Status,
-				"error":      execution.Error,
-				"result":     execution.Result,
-				"dryRun":     execution.DryRun,
+				"status":       execution.Status,
+				"error":        execution.Error,
+				"result":       execution.Result,
+				"dryRun":       execution.DryRun,
 			},
 		})
 	}()
@@ -718,6 +724,7 @@ func (r *Runtime) shutdown() error {
 			fmt.Printf("plugin stop error %s: %v\n", id, err)
 		}
 	}
+	r.wg.Wait()
 	if r.controlServer != nil {
 		_ = r.controlServer.Shutdown(context.Background())
 	}

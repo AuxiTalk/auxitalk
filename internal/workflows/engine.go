@@ -145,6 +145,11 @@ func (e *Engine) newActions(rule types.WorkflowRule, event types.Event) []types.
 			payload[key] = interpolate(value, event, session)
 		}
 
+		traceId := event.TraceID
+		if traceId == "" {
+			traceId = event.ID
+		}
+
 		requests = append(requests, types.ActionRequest{
 			ID:        fmt.Sprintf("workflow-%s-%d", rule.ID, seq),
 			Type:      action.Type,
@@ -152,6 +157,8 @@ func (e *Engine) newActions(rule types.WorkflowRule, event types.Event) []types.
 			Status:    types.ActionStatusRequested,
 			Source:    "workflow:" + rule.ID,
 			SessionID: event.SessionID,
+			TraceID:   traceId,
+			Depth:     event.Depth + 1,
 			Payload:   payload,
 			CreatedAt: now,
 		})

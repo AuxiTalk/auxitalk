@@ -32,6 +32,8 @@ type ActionRequest struct {
 	Status    ActionStatus   `json:"status"`
 	Source    string         `json:"source"`
 	SessionID string         `json:"sessionId,omitempty"`
+	TraceID   string         `json:"traceId,omitempty"`
+	Depth     int            `json:"depth,omitempty"`
 	Payload   map[string]any `json:"payload,omitempty"`
 	CreatedAt time.Time      `json:"createdAt"`
 }

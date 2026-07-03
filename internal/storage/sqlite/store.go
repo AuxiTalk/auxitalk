@@ -17,10 +17,18 @@ type Store struct {
 }
 
 func Open(path string) (*Store, error) {
-	db, err := sql.Open("sqlite3", path)
+	// Enable WAL mode, strict sync and busy timeout to avoid "database is locked" errors
+	dsn := fmt.Sprintf("file:%s?_journal=WAL&_busy_timeout=5000&_sync=1", path)
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, err
 	}
+
+	// Optimize connection pool for WAL mode
+	db.SetMaxOpenConns(1) // Keep at 1 for SQLite to avoid concurrent write locks
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(time.Hour)
+
 	store := &Store{db: db}
 	if err := store.Migrate(context.Background()); err != nil {
 		_ = db.Close()

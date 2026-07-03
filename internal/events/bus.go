@@ -82,6 +82,9 @@ func (s *Subscription) Unsubscribe() {
 }
 
 func (b *Bus) Publish(ctx context.Context, event types.Event) error {
+	if event.Depth > 20 {
+		return fmt.Errorf("event bus cycle detected: max depth 20 exceeded for event type %s", event.Type)
+	}
 	if err := event.Validate(); err != nil {
 		return err
 	}

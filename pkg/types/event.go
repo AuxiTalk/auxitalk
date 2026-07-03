@@ -11,6 +11,8 @@ type Event struct {
 	Type      string         `json:"type"`
 	Source    string         `json:"source"`
 	SessionID string         `json:"sessionId,omitempty"`
+	TraceID   string         `json:"traceId,omitempty"`
+	Depth     int            `json:"depth,omitempty"`
 	Payload   map[string]any `json:"payload,omitempty"`
 	CreatedAt time.Time      `json:"createdAt"`
 }
