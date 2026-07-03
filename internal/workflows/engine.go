@@ -3,6 +3,7 @@ package workflows
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -116,7 +117,7 @@ func (e *Engine) newAction(rule types.WorkflowRule, event types.Event) types.Act
 		"eventSource":    event.Source,
 	}
 	for key, value := range rule.Action.Payload {
-		payload[key] = value
+		payload[key] = interpolate(value, event)
 	}
 
 	return types.ActionRequest{
@@ -129,4 +130,16 @@ func (e *Engine) newAction(rule types.WorkflowRule, event types.Event) types.Act
 		Payload:   payload,
 		CreatedAt: now,
 	}
+}
+
+func interpolate(value any, event types.Event) any {
+	str, ok := value.(string)
+	if !ok {
+		return value
+	}
+	str = strings.ReplaceAll(str, "{{event.id}}", event.ID)
+	str = strings.ReplaceAll(str, "{{event.type}}", event.Type)
+	str = strings.ReplaceAll(str, "{{event.source}}", event.Source)
+	str = strings.ReplaceAll(str, "{{event.sessionId}}", event.SessionID)
+	return str
 }
