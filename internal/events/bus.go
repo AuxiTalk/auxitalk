@@ -108,6 +108,21 @@ func (b *Bus) History() []types.Event {
 	return history
 }
 
+func (b *Bus) RestoreHistory(events []types.Event) {
+	if b.historyLimit <= 0 {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.history = make([]types.Event, 0, len(events))
+	for _, event := range events {
+		b.history = append(b.history, event)
+		if len(b.history) > b.historyLimit {
+			b.history = b.history[len(b.history)-b.historyLimit:]
+		}
+	}
+}
+
 func (b *Bus) unsubscribe(eventType string, id uint64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()

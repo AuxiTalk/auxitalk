@@ -109,11 +109,36 @@ func (r *Runtime) openStorage(ctx context.Context) error {
 		return err
 	}
 	r.storage = store
-	for _, workflow := range r.options.Config.Workflows {
-		if err := r.storage.SaveWorkflow(ctx, workflow); err != nil {
-			return err
+
+	storedWorkflows, err := r.storage.ListWorkflows(ctx)
+	if err == nil {
+		for _, workflow := range storedWorkflows {
+			_ = r.workflowRegistry.Register(workflow)
 		}
 	}
+	for _, workflow := range r.options.Config.Workflows {
+		_ = r.workflowRegistry.Register(workflow)
+		_ = r.storage.SaveWorkflow(ctx, workflow)
+	}
+
+	actions, err := r.storage.ListActions(ctx, 1000)
+	if err == nil {
+		for _, action := range actions {
+			r.actions.Save(action)
+		}
+	}
+
+	events, err := r.storage.ListEvents(ctx, r.options.Config.Runtime.MaxEventsPerSecond*10)
+	if err == nil {
+		// SQLite returns descending, we need ascending for history
+		for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
+			events[i], events[j] = events[j], events[i]
+		}
+		r.events.RestoreHistory(events)
+	}
+
+	_ = r.workflowEngine.SetRules(r.workflowRegistry.EnabledRules())
+
 	return nil
 }
 
